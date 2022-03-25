@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import argparse
+import csv
 import os
 from copy import deepcopy
 
@@ -143,15 +144,34 @@ for run in range(args.num_runs):
     
     model_fn = f"{TDIR}model-{run}.pkl"# model file name
     torch.save(best_weights, model_fn) # save best weights for this run
+    
+    # save detailed loss list for every run separately
+    # can be used to extract both train and test losses
+    np.save(f"{TDIR}-detailed_loss-{run}.npy", best_epoch_losslist)
+    
+    # save test performances
+    if run == 0:
+        mode = "w+"
+    else:
+        mode = "a"
+    
+    # write train loss
+    train_fn = f"{TDIR}-train_perfs.csv"
+    with open(train_fn, mode) as f:
+        writer = csv.writer(f)
+        writer.writerow([str(best_epoch_train_loss)])
+    
+    test_fn = f"{TDIR}-test_perfs.csv"
+    with open(test_fn, mode) as f:
+        writer = csv.writer(f)
+        writer.writerow([str(best_epoch_test_loss)])
 
 
 
+    # import matplotlib.pyplot as plt
 
-
-    import matplotlib.pyplot as plt
-
-    plt.plot(train_losses, label='train', color='red')
-    plt.plot(test_losses, label='test', color='blue')
-    plt.legend()
-    plt.yscale('log')
-    plt.show()
+    # plt.plot(train_losses, label='train', color='red')
+    # plt.plot(test_losses, label='test', color='blue')
+    # plt.legend()
+    # plt.yscale('log')
+    # plt.show()
