@@ -15,16 +15,26 @@ parser.add_argument('--T_train', type=int, default=5, required=False)
 parser.add_argument('--T_test', type=int, default=25, required=False)
 parser.add_argument('--num_tasks', type=int, default=1000, required=False)
 parser.add_argument('--num_epochs', type=int, default=1000, required=False)
-parser.add_argument('--label_as_input', default=False, required=False, action="store_true")
+parser.add_argument('--objective', type=str, choices=["mimick", "perf"], default="mimick", required=False)
+parser.add_argument('--label_as_input', default=False, required=False)
 parser.add_argument('--num_runs', type=int, default=1, required=False)
 
 args = parser.parse_args()
 
+assert not (args.label_as_input and args.objective == "perf"), (
+    "Cannot pass ground-truth output as input as that would be cheating for this performance maximization and the output is constants over time"
+)  
+# Train an LSTM to perform backprop on a distribution of tasks
+if args.label_as_input:
+    args.input_size = args.input_size + 1
+
 RDIR = "./results/"
-TNAME = f"rec-{args.input_size}-{args.hidden_size}-{args.num_layers}-{args.batch_size}-{args.T_train}-{args.T_test}-{args.num_tasks}-{args.label_as_input}"
+TNAME = f"rec-{args.input_size}-{args.hidden_size}-{args.num_layers}-{args.batch_size}-{args.T_train}-{args.T_test}-{args.num_tasks}-{args.label_as_input}-{args.objective}"
 TDIR = f"{RDIR}{TNAME}/"
-if not os.path.isdir(RDIR):
-    os.mkdir(RDIR)
+for direct in [RDIR, TDIR]:
+    if not os.path.isdir(direct):
+        os.mkdir(direct)
+
 
 def fn(x,w,b):
     return w*x+b
@@ -68,11 +78,13 @@ for run in range(args.num_runs):
     rn_opt = torch.optim.SGD(rn.parameters(), lr=1e-2, momentum=0)
     X = []
     Y = []
+    GT = []
 
     for n in range(args.num_tasks):
         w, b = 10*(torch.rand(1)-0.5), 10*(torch.rand(1)-0.5)
         randx = 10*(torch.rand(1)-0.5)
         X.append(randx.repeat(args.total_time_steps).reshape(-1,1,1))
+        GT.append(fn(x=randx, w=w, b=b).repeat(args.total_time_steps).reshape(-1,1,1))
         currY = []
         for t in range(args.total_time_steps):
             preds = rn(randx)
@@ -86,11 +98,8 @@ for run in range(args.num_runs):
         Y.append(currY)
     X = torch.cat(X,dim=1)
     Y = torch.cat(Y,dim=1)
+    GT = torch.cat(GT,dim=1)
     #######################################################################
-
-    # Train an LSTM to perform backprop on a distribution of tasks
-    if args.label_as_input:
-        args.input_size = args.input_size + 1
 
     lstm = GeneralLSTM(input_size=args.input_size, hidden_size=args.hidden_size, 
                     num_layers=args.num_layers, output_size=1)
@@ -111,14 +120,20 @@ for run in range(args.num_runs):
             # stack the batch along the batch dimension 1
             input_batch = X[:,perm[bid:bid+args.batch_size],:] #[seq len, batch size, infeatures]
             output_batch = Y[:,perm[bid:bid+args.batch_size],:]
+            gt_batch = GT[:,perm[bid:bid+args.batch_size],:]
 
-            if args.label_as_input:
-                init_zeros = torch.zeros(X.size(2)*X.size(1)).reshape(1, X.size(1), X.size(2))
-                shifted_output_batch = torch.cat([init_zeros, output_batch], dim=0) # [seq len + 1, batch size, out dim]
-                input_batch = torch.cat([input_batch, shifted_output_batch[:input_batch.size(0),:,:]], dim=2) #[seq len, batch_size, infeatures+1]
+            if args.objective == "mimick":
+                if args.label_as_input:
+                    init_zeros = torch.zeros(X.size(2)*X.size(1)).reshape(1, X.size(1), X.size(2))
+                    shifted_output_batch = torch.cat([init_zeros, output_batch], dim=0) # [seq len + 1, batch size, out dim]
+                    input_batch = torch.cat([input_batch, shifted_output_batch[:input_batch.size(0),:,:]], dim=2) #[seq len, batch_size, infeatures+1]
 
-            pred = lstm(input_batch)
-            losses = (output_batch-pred)**2 #[seq len, batch_size, infeatures+1]
+                pred = lstm(input_batch)
+                losses = (output_batch-pred)**2 #[seq len, batch_size, infeatures+1]
+            else:
+                pred = lstm(input_batch)
+                losses = (gt_batch-pred)**2
+            
             loss_items = losses.clone().detach().numpy()
             loss_itemls.append(loss_items)
             train_loss = losses[:args.T_train,:,:].mean()
@@ -147,7 +162,7 @@ for run in range(args.num_runs):
     
     # save detailed loss list for every run separately
     # can be used to extract both train and test losses
-    np.save(f"{TDIR}-detailed_loss-{run}.npy", best_epoch_losslist)
+    np.save(f"{TDIR}detailed_loss-{run}.npy", best_epoch_losslist)
     
     # save test performances
     if run == 0:
@@ -156,13 +171,13 @@ for run in range(args.num_runs):
         mode = "a"
     
     # write train loss
-    train_fn = f"{TDIR}-train_perfs.csv"
-    with open(train_fn, mode) as f:
+    train_fn = f"{TDIR}train_perfs.csv"
+    with open(train_fn, mode, newline="") as f:
         writer = csv.writer(f)
         writer.writerow([str(best_epoch_train_loss)])
     
-    test_fn = f"{TDIR}-test_perfs.csv"
-    with open(test_fn, mode) as f:
+    test_fn = f"{TDIR}test_perfs.csv"
+    with open(test_fn, mode, newline="") as f:
         writer = csv.writer(f)
         writer.writerow([str(best_epoch_test_loss)])
 
