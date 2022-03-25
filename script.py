@@ -20,6 +20,7 @@ parser.add_argument('--label_as_input', default=False, required=False)
 parser.add_argument('--num_runs', type=int, default=1, required=False)
 
 args = parser.parse_args()
+print(args)
 
 assert not (args.label_as_input and args.objective == "perf"), (
     "Cannot pass ground-truth output as input as that would be cheating for this performance maximization and the output is constants over time"
