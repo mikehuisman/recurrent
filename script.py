@@ -18,6 +18,7 @@ parser.add_argument('--num_epochs', type=int, default=1000, required=False)
 parser.add_argument('--objective', type=str, choices=["mimick", "perf"], default="mimick", required=False)
 parser.add_argument('--label_as_input', default=False, required=False)
 parser.add_argument('--num_runs', type=int, default=1, required=False)
+parser.add_argument('--debug', action="store_true", default=False)
 
 args = parser.parse_args()
 print(args)
@@ -35,9 +36,10 @@ if args.label_as_input:
 RDIR = "./results/"
 TNAME = f"rec-{args.input_size}-{args.hidden_size}-{args.num_layers}-{args.batch_size}-{args.T_train}-{args.T_test}-{args.num_tasks}-{args.label_as_input}-{args.objective}"
 TDIR = f"{RDIR}{TNAME}/"
-for direct in [RDIR, TDIR]:
-    if not os.path.isdir(direct):
-        os.mkdir(direct)
+if not args.debug:
+    for direct in [RDIR, TDIR]:
+        if not os.path.isdir(direct):
+            os.mkdir(direct)
 
 
 def fn(x,w,b):
@@ -128,7 +130,7 @@ for run in range(args.num_runs):
 
             if args.objective == "mimick":
                 if args.label_as_input:
-                    init_zeros = torch.zeros(X.size(2)*X.size(1)).reshape(1, X.size(1), X.size(2))
+                    init_zeros = torch.zeros(input_batch.size(2)*input_batch.size(1)).reshape(1, input_batch.size(1), input_batch.size(2))
                     shifted_output_batch = torch.cat([init_zeros, output_batch], dim=0) # [seq len + 1, batch size, out dim]
                     input_batch = torch.cat([input_batch, shifted_output_batch[:input_batch.size(0),:,:]], dim=2) #[seq len, batch_size, infeatures+1]
 
@@ -159,31 +161,32 @@ for run in range(args.num_runs):
             best_epoch_losslist = np.array(loss_itemls) 
 
 
-    # Evaluate and save the results
-    
-    model_fn = f"{TDIR}model-{run}.pkl"# model file name
-    torch.save(best_weights, model_fn) # save best weights for this run
-    
-    # save detailed loss list for every run separately
-    # can be used to extract both train and test losses
-    np.save(f"{TDIR}detailed_loss-{run}.npy", best_epoch_losslist)
-    
-    # save test performances
-    if run == 0:
-        mode = "w+"
-    else:
-        mode = "a"
-    
-    # write train loss
-    train_fn = f"{TDIR}train_perfs.csv"
-    with open(train_fn, mode, newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([str(best_epoch_train_loss)])
-    
-    test_fn = f"{TDIR}test_perfs.csv"
-    with open(test_fn, mode, newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([str(best_epoch_test_loss)])
+    if not args.debug:
+        # Evaluate and save the results
+        
+        model_fn = f"{TDIR}model-{run}.pkl"# model file name
+        torch.save(best_weights, model_fn) # save best weights for this run
+        
+        # save detailed loss list for every run separately
+        # can be used to extract both train and test losses
+        np.save(f"{TDIR}detailed_loss-{run}.npy", best_epoch_losslist)
+        
+        # save test performances
+        if run == 0:
+            mode = "w+"
+        else:
+            mode = "a"
+        
+        # write train loss
+        train_fn = f"{TDIR}train_perfs.csv"
+        with open(train_fn, mode, newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([str(best_epoch_train_loss)])
+        
+        test_fn = f"{TDIR}test_perfs.csv"
+        with open(test_fn, mode, newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([str(best_epoch_test_loss)])
 
 
 
