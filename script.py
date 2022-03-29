@@ -18,6 +18,9 @@ parser.add_argument('--num_epochs', type=int, default=1000, required=False)
 parser.add_argument('--objective', type=str, choices=["mimick", "perf"], default="mimick", required=False)
 parser.add_argument('--label_as_input', default=False, required=False)
 parser.add_argument('--num_runs', type=int, default=1, required=False)
+parser.add_argument('--param_range', type=float, default=5, required=False)
+parser.add_argument('--xrange', type=float, default=5, required=False)
+parser.add_argument('--evaluate_model', type=str, default=None, required=False)
 parser.add_argument('--debug', action="store_true", default=False)
 
 args = parser.parse_args()
@@ -33,9 +36,31 @@ assert not (args.label_as_input and args.objective == "perf"), (
 if args.label_as_input:
     args.input_size = args.input_size + 1
 
+if not args.evaluate_model is None:
+    assert os.path.isdir("./results/"+args.evaluate_model), "Could not find specified model"
+    inp_size, hsize, nlayers, bsize, T_train, T_test, ntasks, labelinput, objective = args.evaluate_model.split("-")[1:]
+    args.input_size = int(inp_size)
+    args.hidden_size = int(hsize)
+    args.num_layers = int(nlayers)
+    args.batch_size = int(bsize)
+    args.T_train = int(T_train)
+    args.T_test = int(T_test)
+    args.label_as_input = labelinput == "True"
+    num_tasks = ntasks
+else:
+    num_tasks = args.num_tasks
+    
+
 RDIR = "./results/"
-TNAME = f"rec-{args.input_size}-{args.hidden_size}-{args.num_layers}-{args.batch_size}-{args.T_train}-{args.T_test}-{args.num_tasks}-{args.label_as_input}-{args.objective}"
+TNAME = f"rec-{args.input_size}-{args.hidden_size}-{args.num_layers}-{args.batch_size}-{args.T_train}-{args.T_test}-{num_tasks}-{args.label_as_input}-{args.objective}"
 TDIR = f"{RDIR}{TNAME}/"
+
+
+
+
+
+
+
 if not args.debug:
     for direct in [RDIR, TDIR]:
         if not os.path.isdir(direct):
@@ -85,10 +110,12 @@ for run in range(args.num_runs):
     X = []
     Y = []
     GT = []
-
+    Ws, Bs = [], []
     for n in range(args.num_tasks):
-        w, b = 10*(torch.rand(1)-0.5), 10*(torch.rand(1)-0.5)
-        randx = 10*(torch.rand(1)-0.5)
+        # sample from [-param_range, +param_range]
+        w, b = -args.param_range + torch.rand(1)*(2*args.param_range), -args.param_range + torch.rand(1)*(2*args.param_range)
+        Ws.append(w.item()); Bs.append(b.item())
+        randx = -args.xrange + torch.rand(1)*(2*args.xrange) #sample from [-xrange, +xrange]
         X.append(randx.repeat(args.total_time_steps).reshape(-1,1,1))
         GT.append(fn(x=randx, w=w, b=b).repeat(args.total_time_steps).reshape(-1,1,1))
         currY = []
@@ -110,23 +137,35 @@ for run in range(args.num_runs):
     lstm = GeneralLSTM(input_size=args.input_size, hidden_size=args.hidden_size, 
                     num_layers=args.num_layers, output_size=1)
     opt = torch.optim.Adam(lstm.parameters(), lr=1e-3)
-
+    if not args.evaluate_model is None:
+        mpath = f"{TDIR}model-{run}.pkl"
+        print(f"loading model from {mpath}")
+        lstm.load_state_dict(torch.load(mpath))
+    
     best_epoch_test_loss = float("inf")
     best_epoch_train_loss = float("inf")
     best_weights = None 
     best_epoch_losslist = None # best losses (list of numpy arrays of size [seq len, batch_size, infeatures])
+    best_outdomain_losslist = None
 
     train_losses=[]
     test_losses=[]
     for epoch in range(args.num_epochs):
         perm = torch.randperm(X.size(1))
         count = 0
+        x_itemls = []
         loss_itemls = []
+        Wls, Bls = [], []
         for bid in range(0, X.size(1), args.batch_size):
             # stack the batch along the batch dimension 1
             input_batch = X[:,perm[bid:bid+args.batch_size],:] #[seq len, batch size, infeatures]
             output_batch = Y[:,perm[bid:bid+args.batch_size],:]
             gt_batch = GT[:,perm[bid:bid+args.batch_size],:]
+            w = Ws[perm[bid]]; b = Bs[perm[bid]]
+            
+            Wls.append(w)
+            Bls.append(b)
+            x_itemls.append(input_batch[0].numpy().reshape(-1))
 
             if args.objective == "mimick":
                 if args.label_as_input:
@@ -144,9 +183,12 @@ for run in range(args.num_runs):
             loss_itemls.append(loss_items)
             train_loss = losses[:args.T_train,:,:].mean()
             test_loss = losses[args.T_train:,:,:].mean()
-            train_loss.backward()
-            opt.step()
-            opt.zero_grad()
+            
+            # else make no more adjustments and just evaluate
+            if args.evaluate_model is None:
+                train_loss.backward()
+                opt.step()
+                opt.zero_grad()
 
             train_losses.append(train_loss.item())
             test_losses.append(test_loss.item())
@@ -159,17 +201,34 @@ for run in range(args.num_runs):
             best_epoch_test_loss = epoch_test_loss
             best_weights = deepcopy(lstm.state_dict())
             best_epoch_losslist = np.array(loss_itemls) 
+            best_x_itemls = np.array(x_itemls)
+            best_ws = np.array(Wls)
+            best_bs = np.array(Bls)
 
 
     if not args.debug:
         # Evaluate and save the results
         
-        model_fn = f"{TDIR}model-{run}.pkl"# model file name
+        if args.evaluate_model is None:
+            prefix = ""
+        else:
+            prefix = "cross-"
+
+        wfn = f"{TDIR}{prefix}ws-run{run}.npy"
+        np.save(wfn, best_ws)
+
+        bfn = f"{TDIR}{prefix}bs-run{run}.npy"
+        np.save(bfn, best_bs)
+
+        xfn = f"{TDIR}{prefix}inputs-run{run}.npy"
+        np.save(xfn, best_x_itemls)
+
+        model_fn = f"{TDIR}{prefix}model-{run}.pkl"# model file name
         torch.save(best_weights, model_fn) # save best weights for this run
         
         # save detailed loss list for every run separately
         # can be used to extract both train and test losses
-        np.save(f"{TDIR}detailed_loss-{run}.npy", best_epoch_losslist)
+        np.save(f"{TDIR}{prefix}detailed_loss-{run}.npy", best_epoch_losslist)
         
         # save test performances
         if run == 0:
@@ -178,12 +237,14 @@ for run in range(args.num_runs):
             mode = "a"
         
         # write train loss
-        train_fn = f"{TDIR}train_perfs.csv"
+        train_fn = f"{TDIR}{prefix}train_perfs.csv"
         with open(train_fn, mode, newline="") as f:
             writer = csv.writer(f)
             writer.writerow([str(best_epoch_train_loss)])
         
-        test_fn = f"{TDIR}test_perfs.csv"
+        print(f"writing to {TDIR}{prefix}test_perfs.csv")
+
+        test_fn = f"{TDIR}{prefix}test_perfs.csv"
         with open(test_fn, mode, newline="") as f:
             writer = csv.writer(f)
             writer.writerow([str(best_epoch_test_loss)])
