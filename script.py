@@ -180,7 +180,6 @@ for run in range(args.num_runs):
                     input_batch = torch.cat([input_batch, shifted_output_batch[:input_batch.size(0),:,:]], dim=2) #[seq len, batch_size, infeatures+1]
 
                 pred = lstm(input_batch)
-                print(pred, output_batch)
                 losses = (output_batch-pred)**2 #[seq len, batch_size, infeatures+1]
             else:
                 pred = lstm(input_batch)
