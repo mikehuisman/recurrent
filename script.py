@@ -20,6 +20,7 @@ parser.add_argument('--label_as_input', default=False, required=False)
 parser.add_argument('--num_runs', type=int, default=1, required=False)
 parser.add_argument('--param_range', type=float, default=5, required=False)
 parser.add_argument('--xrange', type=float, default=5, required=False)
+parser.add_argument('--learning_rate', type=float, default=1e-2, required=False)
 parser.add_argument('--evaluate_model', type=str, default=None, required=False)
 parser.add_argument('--debug', action="store_true", default=False)
 
@@ -38,7 +39,16 @@ if args.label_as_input:
 
 if not args.evaluate_model is None:
     assert os.path.isdir("./results/"+args.evaluate_model), "Could not find specified model"
-    inp_size, hsize, nlayers, bsize, T_train, T_test, ntasks, labelinput, objective = args.evaluate_model.split("-")[1:]
+    try:
+        inp_size, hsize, nlayers, bsize, T_train, T_test, ntasks, labelinput, objective = args.evaluate_model.split("-")[1:]
+    except:
+        pass
+
+    try: 
+        inp_size, hsize, nlayers, bsize, T_train, T_test, ntasks, labelinput, objective, learning_rate = args.evaluate_model.split("-")[1:]
+    except:
+        raise ValueError("Could not parse the evaluate_model string")
+
     args.input_size = int(inp_size)
     args.hidden_size = int(hsize)
     args.num_layers = int(nlayers)
@@ -46,19 +56,15 @@ if not args.evaluate_model is None:
     args.T_train = int(T_train)
     args.T_test = int(T_test)
     args.label_as_input = labelinput == "True"
+    args.learning_rate = learning_rate
     num_tasks = ntasks
 else:
     num_tasks = args.num_tasks
     
 
 RDIR = "./results/"
-TNAME = f"rec-{args.input_size}-{args.hidden_size}-{args.num_layers}-{args.batch_size}-{args.T_train}-{args.T_test}-{num_tasks}-{args.label_as_input}-{args.objective}"
+TNAME = f"rec-{args.input_size}-{args.hidden_size}-{args.num_layers}-{args.batch_size}-{args.T_train}-{args.T_test}-{num_tasks}-{args.label_as_input}-{args.objective}-{args.learning_rate}"
 TDIR = f"{RDIR}{TNAME}/"
-
-
-
-
-
 
 
 if not args.debug:
@@ -106,7 +112,7 @@ for run in range(args.num_runs):
     ########################################################################
     ### Create training data
     rn = RandomNetwork()
-    rn_opt = torch.optim.SGD(rn.parameters(), lr=1e-2, momentum=0)
+    rn_opt = torch.optim.SGD(rn.parameters(), lr=args.learning_rate, momentum=0)
     X = []
     Y = []
     GT = []
@@ -174,6 +180,7 @@ for run in range(args.num_runs):
                     input_batch = torch.cat([input_batch, shifted_output_batch[:input_batch.size(0),:,:]], dim=2) #[seq len, batch_size, infeatures+1]
 
                 pred = lstm(input_batch)
+                print(pred, output_batch)
                 losses = (output_batch-pred)**2 #[seq len, batch_size, infeatures+1]
             else:
                 pred = lstm(input_batch)
@@ -196,6 +203,7 @@ for run in range(args.num_runs):
 
         epoch_train_loss = np.mean(train_losses[-count:])
         epoch_test_loss = np.mean(test_losses[-count:])
+        print("train loss:", epoch_train_loss, "test loss:", epoch_test_loss)
         if epoch_test_loss < best_epoch_test_loss:
             best_epoch_train_loss = epoch_train_loss
             best_epoch_test_loss = epoch_test_loss
