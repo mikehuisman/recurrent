@@ -103,15 +103,21 @@ class GeneralLSTM(nn.Module):
         self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers)
         self.output = nn.Linear(hidden_size, output_size)
     
-    def forward(self, x):
+    def forward(self, x, prevh=None, prevc=None):
         # x has shape [seq length, batch size, input features]
         # ht has shape [num layers, batch size, hidden dim]
-        x, (ht, ct) = self.lstm(x)
+        if prevh is None or prevc is None:
+            x, (ht, ct) = self.lstm(x)
+        else:
+            x, (ht, ct) = self.lstm(x, (prevh, prevc))
         
-        # compute output for all hidden states (present in x)
+        return x, (ht,ct) # [seq len, batch size, out dim]
+    
+    def predict(self, x):
+        # ompute output for all hidden states (present in x)
         # x now has shape [seq length, batch size, hidden dim]
-        out = self.output(x)
-        return out # [seq len, batch size, out dim]
+        return self.output(x)
+
         
 
 args.total_time_steps = args.T_train + args.T_test
@@ -196,10 +202,28 @@ for run in range(args.num_runs):
                     shifted_output_batch = torch.cat([init_zeros, output_batch], dim=0) # [seq len + 1, batch size, out dim]
                     input_batch = torch.cat([input_batch, shifted_output_batch[:input_batch.size(0),:,:]], dim=2) #[seq len, batch_size, infeatures+1]
 
-                pred = lstm(input_batch)
+                hn, cn = None, None
+                predictions = []
+                for t in range(args.total_time_steps):
+                    output, (hn, cn)  = lstm(input_batch[t,:,:].unsqueeze(0), prevh=hn, prevc=cn)
+                    preds = lstm.predict(output)
+                    predictions.append(preds)
+                    # average over hidden states for every layer and repeat along batch dimension
+                    hn = hn.mean(dim=1).repeat(1,args.batch_size,1) # hn shape: [num_layers, batch size, hidden size]
+                
+                pred = torch.cat(predictions)
                 losses = (output_batch-pred)**2 #[seq len, batch_size, infeatures+1]
             else:
-                pred = lstm(input_batch)
+                hn, cn = None, None
+                predictions = []
+                for t in range(args.total_time_steps):
+                    output, (hn, cn)  = lstm(input_batch[t,:,:].unsqueeze(0), prevh=hn, prevc=cn)
+                    preds = lstm.predict(output)
+                    predictions.append(preds)
+                    # average over hidden states for every layer and repeat along batch dimension
+                    hn = hn.mean(dim=1).repeat(1,args.batch_size,1) # hn shape: [num_layers, batch size, hidden size]
+                
+                pred = torch.cat(predictions)
                 losses = (gt_batch-pred)**2
             
             loss_items = losses.clone().detach().numpy()
@@ -219,6 +243,7 @@ for run in range(args.num_runs):
 
         epoch_train_loss = np.mean(train_losses[-count:])
         epoch_test_loss = np.mean(test_losses[-count:])
+        print(f"Epoch {epoch} - train loss: {epoch_train_loss}, test loss: {epoch_test_loss}")
         if epoch_test_loss < best_epoch_test_loss:
             best_epoch_train_loss = epoch_train_loss
             best_epoch_test_loss = epoch_test_loss
