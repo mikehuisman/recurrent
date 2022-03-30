@@ -19,7 +19,6 @@ parser.add_argument('--num_epochs', type=int, default=1000, required=False)
 parser.add_argument('--objective', type=str, choices=["mimick", "perf"], default="mimick", required=False)
 parser.add_argument('--label_as_input', default=False, required=False)
 parser.add_argument('--num_runs', type=int, default=1, required=False)
-parser.add_argument('--param_range', type=float, default=5, required=False)
 parser.add_argument('--xrange', type=float, default=5, required=False)
 parser.add_argument('--evaluate_model', type=str, default=None, required=False)
 parser.add_argument('--debug', action="store_true", default=False)
@@ -209,8 +208,9 @@ for run in range(args.num_runs):
                     preds = lstm.predict(output)
                     predictions.append(preds)
                     # average over hidden states for every layer and repeat along batch dimension
-                    hn = hn.mean(dim=1).repeat(1,args.batch_size,1) # hn shape: [num_layers, batch size, hidden size]
-                
+                    hn = hn.mean(dim=1).unsqueeze(1).repeat(1,args.batch_size,1) # hn shape: [num_layers, batch size, hidden size]
+
+
                 pred = torch.cat(predictions)
                 losses = (output_batch-pred)**2 #[seq len, batch_size, infeatures+1]
             else:
@@ -221,7 +221,7 @@ for run in range(args.num_runs):
                     preds = lstm.predict(output)
                     predictions.append(preds)
                     # average over hidden states for every layer and repeat along batch dimension
-                    hn = hn.mean(dim=1).repeat(1,args.batch_size,1) # hn shape: [num_layers, batch size, hidden size]
+                    hn = hn.mean(dim=1).unsqueeze(1).repeat(1,args.batch_size,1)  # hn shape: [num_layers, batch size, hidden size]
                 
                 pred = torch.cat(predictions)
                 losses = (gt_batch-pred)**2
