@@ -17,6 +17,7 @@ parser.add_argument('--num_tasks', type=int, default=1000, required=False)
 parser.add_argument('--num_epochs', type=int, default=1000, required=False)
 parser.add_argument('--objective', type=str, choices=["mimick", "perf"], default="mimick", required=False)
 parser.add_argument('--label_as_input', default=False, required=False)
+parser.add_argument('--fixed_init', default=False, required=False)
 parser.add_argument('--num_runs', type=int, default=1, required=False)
 parser.add_argument('--param_range', type=float, default=5, required=False)
 parser.add_argument('--xrange', type=float, default=5, required=False)
@@ -27,8 +28,9 @@ parser.add_argument('--debug', action="store_true", default=False)
 args = parser.parse_args()
 print(args)
 
-if type(args.label_as_input) == type("string"):
-    args.label_as_input = args.label_as_input == "True"
+# Convert strings to booleans
+args.label_as_input = args.label_as_input == "True"
+args.fixed_init = args.fixed_init == "True"
 
 assert not (args.label_as_input and args.objective == "perf"), (
     "Cannot pass ground-truth output as input as that would be cheating for this performance maximization and the output is constants over time"
@@ -46,6 +48,14 @@ if not args.evaluate_model is None:
 
     try: 
         inp_size, hsize, nlayers, bsize, T_train, T_test, ntasks, labelinput, objective, learning_rate = args.evaluate_model.split("-")[1:]
+        args.learning_rate = float(learning_rate)
+    except:
+        raise ValueError("Could not parse the evaluate_model string")
+
+    try: 
+        inp_size, hsize, nlayers, bsize, T_train, T_test, ntasks, labelinput, objective, learning_rate, fixed_init = args.evaluate_model.split("-")[1:]
+        args.learning_rate = float(learning_rate)
+        args.fixed_init = fixed_init == "True"
     except:
         raise ValueError("Could not parse the evaluate_model string")
 
@@ -56,14 +66,13 @@ if not args.evaluate_model is None:
     args.T_train = int(T_train)
     args.T_test = int(T_test)
     args.label_as_input = labelinput == "True"
-    args.learning_rate = float(learning_rate)
     num_tasks = ntasks
 else:
     num_tasks = args.num_tasks
     
 
 RDIR = "./results/"
-TNAME = f"rec-{args.input_size}-{args.hidden_size}-{args.num_layers}-{args.batch_size}-{args.T_train}-{args.T_test}-{num_tasks}-{args.label_as_input}-{args.objective}-{args.learning_rate}"
+TNAME = f"rec-{args.input_size}-{args.hidden_size}-{args.num_layers}-{args.batch_size}-{args.T_train}-{args.T_test}-{num_tasks}-{args.label_as_input}-{args.objective}-{args.learning_rate}-{args.fixed_init}"
 TDIR = f"{RDIR}{TNAME}/"
 
 
@@ -112,12 +121,15 @@ for run in range(args.num_runs):
     ########################################################################
     ### Create training data
     rn = RandomNetwork()
+    param_clone = deepcopy(rn.state_dict())
     rn_opt = torch.optim.SGD(rn.parameters(), lr=args.learning_rate, momentum=0)
     X = []
     Y = []
     GT = []
     Ws, Bs = [], []
     for n in range(args.num_tasks):
+        if args.fixed_init:
+            rn.load_state_dict(param_clone)
         # sample from [-param_range, +param_range]
         w, b = -args.param_range + torch.rand(1)*(2*args.param_range), -args.param_range + torch.rand(1)*(2*args.param_range)
         Ws.append(w.item()); Bs.append(b.item())
