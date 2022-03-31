@@ -209,7 +209,7 @@ for run in range(args.num_runs):
                     predictions.append(preds)
                     # average over hidden states for every layer and repeat along batch dimension
                     hn = hn.mean(dim=1).unsqueeze(1).repeat(1,args.batch_size,1) # hn shape: [num_layers, batch size, hidden size]
-
+                    cn = cn.mean(dim=1).unsqueeze(1).repeat(1,args.batch_size,1)
 
                 pred = torch.cat(predictions)
                 losses = (output_batch-pred)**2 #[seq len, batch_size, infeatures+1]
@@ -222,7 +222,8 @@ for run in range(args.num_runs):
                     predictions.append(preds)
                     # average over hidden states for every layer and repeat along batch dimension
                     hn = hn.mean(dim=1).unsqueeze(1).repeat(1,args.batch_size,1)  # hn shape: [num_layers, batch size, hidden size]
-                
+                    cn = cn.mean(dim=1).unsqueeze(1).repeat(1,args.batch_size,1)
+                    
                 pred = torch.cat(predictions)
                 losses = (gt_batch-pred)**2
             
