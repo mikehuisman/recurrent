@@ -20,6 +20,7 @@ parser.add_argument('--objective', type=str, choices=["mimick", "perf"], default
 parser.add_argument('--label_as_input', default=False, required=False)
 parser.add_argument('--num_runs', type=int, default=1, required=False)
 parser.add_argument('--xrange', type=float, default=5, required=False)
+parser.add_argument('--average_cell', default=False, required=False)
 parser.add_argument('--evaluate_model', type=str, default=None, required=False)
 parser.add_argument('--debug', action="store_true", default=False)
 
@@ -28,6 +29,7 @@ print(args)
 
 if type(args.label_as_input) == type("string"):
     args.label_as_input = args.label_as_input == "True"
+args.average_cell = args.average_cell == "True"
 
 assert not (args.label_as_input and args.objective == "perf"), (
     "Cannot pass ground-truth output as input as that would be cheating for this performance maximization and the output is constants over time"
@@ -38,7 +40,18 @@ if args.label_as_input:
 
 if not args.evaluate_model is None:
     assert os.path.isdir("./results/"+args.evaluate_model), "Could not find specified model"
-    inp_size, hsize, nlayers, bsize, T_train, T_test, ntasks, labelinput, objective = args.evaluate_model.split("-")[1:]
+    
+    try:
+        inp_size, hsize, nlayers, bsize, T_train, T_test, ntasks, labelinput, objective = args.evaluate_model.split("-")[1:]
+    except:
+        pass
+
+    try:
+        inp_size, hsize, nlayers, bsize, T_train, T_test, ntasks, labelinput, objective, average_cell = args.evaluate_model.split("-")[1:]
+        args.average_cell = average_cell == "True"
+    except:
+        pass
+
     args.input_size = int(inp_size)
     args.hidden_size = int(hsize)
     args.num_layers = int(nlayers)
@@ -46,13 +59,15 @@ if not args.evaluate_model is None:
     args.T_train = int(T_train)
     args.T_test = int(T_test)
     args.label_as_input = labelinput == "True"
+
+
     num_tasks = ntasks
 else:
     num_tasks = args.num_tasks
     
 
 RDIR = "./results/"
-TNAME = f"sine-{args.input_size}-{args.hidden_size}-{args.num_layers}-{args.batch_size}-{args.T_train}-{args.T_test}-{num_tasks}-{args.label_as_input}-{args.objective}"
+TNAME = f"sine-{args.input_size}-{args.hidden_size}-{args.num_layers}-{args.batch_size}-{args.T_train}-{args.T_test}-{num_tasks}-{args.label_as_input}-{args.objective}-{args.average_cell}"
 TDIR = f"{RDIR}{TNAME}/"
 
 
@@ -209,7 +224,8 @@ for run in range(args.num_runs):
                     predictions.append(preds)
                     # average over hidden states for every layer and repeat along batch dimension
                     hn = hn.mean(dim=1).unsqueeze(1).repeat(1,args.batch_size,1) # hn shape: [num_layers, batch size, hidden size]
-                    cn = cn.mean(dim=1).unsqueeze(1).repeat(1,args.batch_size,1)
+                    if args.average_cell:
+                        cn = cn.mean(dim=1).unsqueeze(1).repeat(1,args.batch_size,1)
 
                 pred = torch.cat(predictions)
                 losses = (output_batch-pred)**2 #[seq len, batch_size, infeatures+1]
@@ -222,8 +238,9 @@ for run in range(args.num_runs):
                     predictions.append(preds)
                     # average over hidden states for every layer and repeat along batch dimension
                     hn = hn.mean(dim=1).unsqueeze(1).repeat(1,args.batch_size,1)  # hn shape: [num_layers, batch size, hidden size]
-                    cn = cn.mean(dim=1).unsqueeze(1).repeat(1,args.batch_size,1)
-                    
+                    if args.average_cell:
+                        cn = cn.mean(dim=1).unsqueeze(1).repeat(1,args.batch_size,1)
+
                 pred = torch.cat(predictions)
                 losses = (gt_batch-pred)**2
             
