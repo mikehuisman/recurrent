@@ -56,7 +56,7 @@ if not args.evaluate_model is None:
     args.T_train = int(T_train)
     args.T_test = int(T_test)
     args.label_as_input = labelinput == "True"
-    args.learning_rate = learning_rate
+    args.learning_rate = float(learning_rate)
     num_tasks = ntasks
 else:
     num_tasks = args.num_tasks
