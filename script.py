@@ -233,6 +233,9 @@ for run in range(args.num_runs):
         else:
             prefix = "cross-"
 
+        yfn = f"{TDIR}{prefix}ys-run{run}.npy"
+        np.save(yfn, Y)
+
         wfn = f"{TDIR}{prefix}ws-run{run}.npy"
         np.save(wfn, best_ws)
 
