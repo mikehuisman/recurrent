@@ -18,6 +18,7 @@ parser.add_argument('--num_tasks', type=int, default=1000, required=False)
 parser.add_argument('--num_epochs', type=int, default=1000, required=False)
 parser.add_argument('--objective', type=str, choices=["mimick", "perf"], default="mimick", required=False)
 parser.add_argument('--label_as_input', default=False, required=False)
+parser.add_argument('--fixed_init', default=False, required=False)
 parser.add_argument('--num_runs', type=int, default=1, required=False)
 parser.add_argument('--xrange', type=float, default=5, required=False)
 parser.add_argument('--average_cell', default=False, required=False)
@@ -30,6 +31,7 @@ print(args)
 if type(args.label_as_input) == type("string"):
     args.label_as_input = args.label_as_input == "True"
 args.average_cell = args.average_cell == "True"
+args.fixed_init = args.fixed_init == "True"
 
 assert not (args.label_as_input and args.objective == "perf"), (
     "Cannot pass ground-truth output as input as that would be cheating for this performance maximization and the output is constants over time"
@@ -52,6 +54,13 @@ if not args.evaluate_model is None:
     except:
         pass
 
+    try: 
+        inp_size, hsize, nlayers, bsize, T_train, T_test, ntasks, labelinput, objective, average_cell, fixed_init = args.evaluate_model.split("-")[1:]
+        args.fixed_init = fixed_init == "True"
+        args.average_cell = average_cell == "True"
+    except:
+        raise ValueError("Could not parse the evaluate_model string")
+
     args.input_size = int(inp_size)
     args.hidden_size = int(hsize)
     args.num_layers = int(nlayers)
@@ -67,7 +76,7 @@ else:
     
 
 RDIR = "./results/"
-TNAME = f"sine-{args.input_size}-{args.hidden_size}-{args.num_layers}-{args.batch_size}-{args.T_train}-{args.T_test}-{num_tasks}-{args.label_as_input}-{args.objective}-{args.average_cell}"
+TNAME = f"sine-{args.input_size}-{args.hidden_size}-{args.num_layers}-{args.batch_size}-{args.T_train}-{args.T_test}-{num_tasks}-{args.label_as_input}-{args.objective}-{args.average_cell}-{args.fixed_init}"
 TDIR = f"{RDIR}{TNAME}/"
 
 
@@ -141,12 +150,15 @@ for run in range(args.num_runs):
     ########################################################################
     ### Create training data
     rn = SineNetwork()
+    param_clone = deepcopy(rn.state_dict())
     rn_opt = torch.optim.SGD(rn.parameters(), lr=1e-2, momentum=0)
     X = []
     Y = []
     GT = []
     Ws, Bs = [], []
     for n in range(args.num_tasks):
+        if args.fixed_init:
+            rn.load_state_dict(param_clone)
         ########################################################
         # Different batches at every time step? Replace repeat!
         ########################################################
