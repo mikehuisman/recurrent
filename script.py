@@ -50,7 +50,7 @@ if not args.evaluate_model is None:
         inp_size, hsize, nlayers, bsize, T_train, T_test, ntasks, labelinput, objective, learning_rate = args.evaluate_model.split("-")[1:]
         args.learning_rate = float(learning_rate)
     except:
-        raise ValueError("Could not parse the evaluate_model string")
+        pass
 
     try: 
         inp_size, hsize, nlayers, bsize, T_train, T_test, ntasks, labelinput, objective, learning_rate, fixed_init = args.evaluate_model.split("-")[1:]
